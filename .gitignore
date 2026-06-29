@@ -1,0 +1,22 @@
+# Environment variables
+.env
+
+# Face recognition data
+face_data.pkl
+
+# Python cache
+__pycache__/
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+
+# Generated notes
+jarvis_notes.txt
+
+# Log files
+*.log
