@@ -297,7 +297,7 @@ def open_notes():
         notes_path = os.environ.get("JARVIS_NOTES_PATH", f"{user_profile}/Desktop/jarvis_notes.txt")
         if not os.path.exists(notes_path):
             with open(notes_path,"w") as f:
-                f.wrtie("--- JARVIS NOTES---\n")
+                f.write("--- JARVIS NOTES---\n")
         os.startfile(notes_path)
         return "Opening notes file"
     except Exception as e:
@@ -861,7 +861,7 @@ def read_screen_and_answer():
     image_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     response = client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        model="qwen/qwen3.8-27b",
         messages=[{
             "role": "user",
             "content": [
@@ -920,7 +920,7 @@ def analyze_code(intent="explain"):
         content=[
             {
                 "type":"image_url",
-                "image_url":{"url":f"data:img/png;base64,{image_data}"}
+                "url": f"data:image/png;base64,{image_data}"
             }
         ]
     print(f" source:{source}")
@@ -937,7 +937,7 @@ def analyze_code(intent="explain"):
     content.append({"type":"text","text":prompt_text})
 
     response=client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        model="qwen/qwen3.8-27b",
         messages=[{"role":"user","content":content}]
     )
 
@@ -1006,8 +1006,17 @@ if __name__ == "__main__":
                 if result and result.lower() == "sleep":
                     active = False
 
+        except sr.WaitTimeoutError:
+            continue
+
+        except sr.UnknownValueError:
+            continue
+
+        except sr.RequestError as e:
+            print(f"Speech recognition error: {e}")
+
         except Exception as e:
-            print("Error:", e)
+            print(f"Unexpected error: {e}")
 
 
 
