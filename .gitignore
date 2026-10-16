@@ -1,22 +1,35 @@
-# Environment variables
+# API keys and environment variables
 .env
+.env.*
+
+# Keep the example configuration
+!.env.example
 
 # Face recognition data
 face_data.pkl
 
 # Python cache
 __pycache__/
+*.py[cod]
 
 # Virtual environments
 venv/
 .venv/
+env/
 
-# IDE files
+# IDE settings
 .vscode/
 .idea/
 
-# Generated notes
+# Generated notes and logs
 jarvis_notes.txt
-
-# Log files
 *.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
