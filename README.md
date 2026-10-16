@@ -38,6 +38,19 @@ It is designed to automate everyday desktop tasks while providing an intuitive a
 * Pyperclip
 
 ---
+## 🤖 AI Models
+
+Jarvis uses Groq-hosted AI models for conversational assistance
+and visual analysis.
+
+| Function | Model |
+|---|---|
+| Conversational AI and tool calling | `openai/gpt-oss-120b` |
+| Screenshot analysis | `qwen/qwen3.8-27b` |
+| Code analysis | `qwen/qwen3.8-27b` |
+
+Model availability and supported capabilities may change.
+Check the Groq documentation for current model availability.
 
 ## 📂 Project Structure
 
@@ -128,6 +141,13 @@ If you'd like to contribute:
 4. Open a Pull Request.
 
 ---
+
+## 💻 Platform Support
+
+Jarvis is currently designed for Windows.
+
+Some features depend on Windows-specific APIs and may not
+work on Linux or macOS.
 
 ## 📄 License
 
