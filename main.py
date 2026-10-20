@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Load API keys from environment variables (set these in a .env file or your system environment)
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 # gemini_client=genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 # recognizer = sr.Recognizer()
 
