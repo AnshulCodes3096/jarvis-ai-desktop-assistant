@@ -27,13 +27,16 @@ import pickle
 import glob
 import pyperclip
 import time
+import re
+import difflib 
+import shutil
 from jarvis_gui import launch_gui, get_gui
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Load API keys from environment variables (set these in a .env file or your system environment)
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 # gemini_client=genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 # recognizer = sr.Recognizer()
 
@@ -95,7 +98,6 @@ def face_watcher():
     print("📸 Face watcher active")
     while True:
         if active:
-            import time
             time .sleep(2)
             continue
 
@@ -107,31 +109,50 @@ def face_watcher():
 
 
 def open_application(app_name):
-    user_profile = os.environ.get("USERPROFILE", "C:/Users/YourUsername")
-    apps = {
-        "chrome": "C:/Program Files/Google/Chrome/Application/chrome.exe",
-        "notepad": "notepad.exe",
-        "calculator": "calc.exe",
-        "spotify": f"{user_profile}/AppData/Roaming/Spotify/Spotify.exe",
-        "vscode": f"{user_profile}/AppData/Local/Programs/Microsoft VS Code/Code.exe",
-        "explorer": "explorer.exe",
-        "task manager": "taskmgr.exe",
-        "whatsapp": f"{user_profile}/AppData/Local/WhatsApp/WhatsApp.exe",
-        "word": "winword.exe",
-        "excel": "excel.exe",
-        "powerpoint": "powerpnt.exe",
-        "cmd": "cmd.exe",
-    }
-    app=app_name.lower()
-    if app in apps:
-        subprocess.Popen(apps[app])
-        return f"Opening {app_name}"
-    else:
+    cache=open_application.__dict__.setdefault("index",{})
+    def scan():
         try:
-            subprocess.Popen(app_name)
-            return f"Opening {app_name}"
-        except:
-            return f"Sorry, I couldn't find {app_name}"
+            out=subprocess.run(
+                ["powershell","-NoProfile","-Command","Get-StartApps | ConvertTo-Json"],
+                capture_output=True,text=True,timeout=20,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            ).stdout
+            cache.clear()
+            cache.update({a["Name"].lower():a["AppID"] for a in json.loads(out)})
+            print(f"App index bulit:{len(cache)} appps found")
+        except Exception as e:
+            print(f"App scanFailed: {e}")
+
+    def find(q):
+        word=re.compile(rf"\b{re.escape(q)}\b")
+        for hits in ([n for n in cache if word.search(n)],[n for n in cache if q in n]):
+            if hits:
+                return min(hits,key=len)
+        close=difflib.get_close_matches(q,cache.keys(),n=1,cutoff=0.6)
+        return close[0] if close else None
+    q=app_name.lower().strip()
+    if not q:
+        scan()
+        return
+    match=find(q)
+    if not match:
+        scan()
+        match=find(q)
+    if match:
+        try:
+            subprocess.Popen(["explorer.exe",f"shell:AppsFolder\\{cache[match]}"])
+            return f"Opening {match.title()}"
+        except Exception as e:
+            print(f"Launch error: {e}")
+            return f"I found {match.title()} but couldn't launch it"
+    exe=shutil.which(q) or shutil.which(q+".exe")
+    if exe:
+        subprocess.Popen(exe)
+        return f"Opening {app_name}"
+    return f"Sorry sir, {app_name} doesn't seem to be installed on this PC"
+
+
+
 def get_battery():
     battery=psutil.sensors_battery()
     if battery:
@@ -920,7 +941,7 @@ def analyze_code(intent="explain"):
         content=[
             {
                 "type":"image_url",
-                "url": f"data:image/png;base64,{image_data}"
+                "image_url": {"url":f"data:image/png;base64,{image_data}"}
             }
         ]
     print(f" source:{source}")
@@ -943,7 +964,7 @@ def analyze_code(intent="explain"):
 
     answer=response.choices[0].message.content.strip()
     threading.Thread(target=show_overlay,args=(answer,),daemon=True).start()
-    speak(f"Done. Check the overlay for the {intent} analysis.")
+    return f"Done. Check the overlay for the {intent} analysis."
 
     
 
@@ -964,6 +985,7 @@ def setup_hotkey():
 
 
 if __name__ == "__main__":
+    active=False
     speak("initializing jarvis..")
     gui_thread=threading.Thread(target=launch_gui,daemon=True)
     gui_thread.start()
@@ -983,9 +1005,10 @@ if __name__ == "__main__":
 
     face_thread=threading.Thread(target=face_watcher,daemon=True)
     face_thread.start()
+    threading.Thread(target=open_application,args=("",),daemon=True).start()
 
 
-    active = False
+
     while True:
         r = sr.Recognizer()
         # print("recognizing..")
@@ -1028,7 +1051,9 @@ it bascicallt converts pixels to text. working with pillow both make a readable 
 working of keyboard library: it detects hotkey to give command 
 like currently if i press alt+space my gpt opens on the screen 
 
-
+re (Regular Expressions): Used to search, match, extract, and modify text patterns. For example, identifying specific words or removing unwanted characters from a string.
+difflib (Sequence Comparison): Used to compare two strings or sequences and find similarities or differences. For example, finding the closest matching command when the user speaks an incorrect command.
+shutil (High-Level File Operations): Used to perform file and folder operations, such as copying, moving, renaming, and deleting files or directories.
 So the full flow is: Keyboard detects your hotkey → Pillow takes the screenshot → Tesseract reads the text → Groq answers the question → overlay shows the answer.
 
 os._exit(0)   "I shut down successfully, no errors"
