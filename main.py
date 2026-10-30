@@ -183,14 +183,18 @@ def set_volume(level):
         return f"Couldn't set volume: {e}"
 
 def take_screenshot(filename="Screenshots"):
-    filename = filename.replace(".png", "")
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    user_profile = os.environ.get("USERPROFILE", "C:/Users/YourUsername")
-    screenshots_dir = os.environ.get("JARVIS_SCREENSHOTS_DIR", f"{user_profile}/Pictures/Screenshots")
-    path = f"{screenshots_dir}/{filename}_{timestamp}.png"
-    screenshot = ImageGrab.grab()
-    screenshot.save(path)
-    return f"screenshot saved to {filename}_{timestamp}.png"
+    try:
+        filename = re.sub(r'[\\/:*?"<>|]', "_", filename.replace(".png", ""))
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        user_profile = os.environ.get("USERPROFILE", "C:/Users/YourUsername")
+        screenshots_dir = os.environ.get("JARVIS_SCREENSHOTS_DIR", f"{user_profile}/Pictures/Screenshots")
+        os.makedirs(screenshots_dir, exist_ok=True)
+        path = os.path.join(screenshots_dir, f"{filename}_{timestamp}.png")
+        ImageGrab.grab().save(path)
+        return f"screenshot saved to {filename}_{timestamp}.png"
+    except Exception as e:
+        print(f"Screenshot error: {e}")
+        return f"Couldn't save the screenshot: {e}"
 
 
 def shutdown_pc(timer=0):
