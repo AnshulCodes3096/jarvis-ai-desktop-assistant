@@ -56,10 +56,14 @@ def speak(text):
     engine.runAndWait()
     engine.stop()
 
+def prepare_face(gray, x, y, w, h):
+    face = gray[y + int(h * 0.2): y + int(h * 0.75), x + int(w * 0.15): x + int(w * 0.85)]
+    face = cv2.resize(face, (100, 100))
+    return cv2.equalizeHist(face)
 def recognize_face():
     try:
         with open("face_data.pkl","rb") as f:
-            known_face=pickle.load(f)
+            known_faces=pickle.load(f)
     except:
         speak("Face data not found")
         return False
@@ -78,12 +82,10 @@ def recognize_face():
         faces=face_cascade.detectMultiScale(gray,1.3,5)
 
         for (x,y,w,h) in faces:
-            face_img=gray[y:y+h,x:x+w]
-            face_img=cv2.resize(face_img,(200,200))
-            result=cv2.matchTemplate(face_img,known_face,cv2.TM_CCOEFF_NORMED)
-            score=result[0][0]
+            face_img=prepare_face(gray,x,y,w,h)
+            score=max(cv2.matchTemplate(face_img,k,cv2.TM_CCOEFF_NORMED)[0][0] for k in known_faces)
             print(f"Match Score: {score: .2f}")
-            if score>0.6:
+            if score>0.7:
                 cam.release()
                 cv2.destroyAllWindows()
                 return True
@@ -98,7 +100,7 @@ def face_watcher():
     print("📸 Face watcher active")
     while True:
         if active:
-            time .sleep(2)
+            time.sleep(3)
             continue
 
         recongized=recognize_face()
@@ -119,9 +121,9 @@ def open_application(app_name):
             ).stdout
             cache.clear()
             cache.update({a["Name"].lower():a["AppID"] for a in json.loads(out)})
-            print(f"App index bulit:{len(cache)} appps found")
+            print(f"App index built: {len(cache)} apps found")
         except Exception as e:
-            print(f"App scanFailed: {e}")
+            print(f"App scan failed: {e}")
 
     def find(q):
         word=re.compile(rf"\b{re.escape(q)}\b")
@@ -226,15 +228,56 @@ def search_youtube(query):
     webbrowser.open(f"https://youtube.com/results?search_query={query}")
     return f"searching YouTube for {query}"
 
-def get_weather():
+def get_weather(city=None):
     api_key = os.environ.get("OPENWEATHER_API_KEY")
-    loc=requests.get("http://ip-api.com/json/").json()
-    city=loc["city"]
-    url=f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-    data=requests.get(url).json()
-    temp=data["main"]["temp"]
-    desc=data["weather"][0]["description"]
-    return f"Current temperature in {city} is {temp}°C with {desc}"
+
+    def device_location():
+        if "loc" in get_weather.__dict__:
+            return get_weather.loc
+        ps = r'''
+Add-Type -AssemblyName System.Device
+$w = New-Object System.Device.Location.GeoCoordinateWatcher
+$w.Start()
+$t = 0
+while (($w.Status -ne 'Ready') -and ($t -lt 8000)) { Start-Sleep -Milliseconds 200; $t += 200 }
+$l = $w.Position.Location
+if ($l.IsUnknown) { exit 1 }
+$c = [cultureinfo]::InvariantCulture
+"$($l.Latitude.ToString($c)),$($l.Longitude.ToString($c))"
+'''
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, text=True, timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            ).stdout.strip()
+            lat, lon = map(float, out.split(","))
+        except Exception:
+            print("Windows location unavailable, using IP lookup")
+            ip = requests.get("http://ip-api.com/json/", timeout=10).json()
+            lat, lon = ip["lat"], ip["lon"]
+        get_weather.loc = (lat, lon)
+        return lat, lon
+
+    try:
+        if city:
+            params = {"q": city}
+        else:
+            lat, lon = device_location()
+            params = {"lat": lat, "lon": lon}
+
+        params.update({"appid": api_key, "units": "metric"})
+        data = requests.get("https://api.openweathermap.org/data/2.5/weather",
+                            params=params, timeout=10).json()
+
+        if str(data.get("cod")) != "200":
+            return f"Sorry sir, I couldn't find the weather for {city}"
+
+        return (f"Current temperature in {data['name']} is "
+                f"{data['main']['temp']}°C with {data['weather'][0]['description']}")
+    except Exception as e:
+        print(f"Weather error: {e}")
+        return "Couldn't get the weather right now"
 
 def get_time():
     return datetime.datetime.now().strftime("%I:%M %p")
@@ -534,8 +577,13 @@ tools=[
         "type":"function",
         "function":{
             "name":"get_weather",
-            "description":"Get current weather of user's location",
-            "parameters":{"type":"object","properties":{}}
+            "description":"Get current weather. Uses the user's current location unless a city is mentioned.",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "city":{"type":"string","description":"Optional city name, e.g. Delhi"}
+                }
+            }
         }
     },
     {
@@ -749,7 +797,7 @@ function_map={
     "restart_pc":           lambda args: restart_pc(),
     "lock_pc":              lambda args: lock_pc(),
     "cancel_shutdown":      lambda args: cancel_shutdown(),
-    "get_weather":          lambda args: get_weather(),
+    "get_weather":          lambda args: get_weather(args.get("city")),
     "get_time":             lambda args: get_time(),
     "get_date":             lambda args: get_date(),
     "spotify_pause":        lambda args: spotify_pause(),
@@ -941,7 +989,7 @@ def analyze_code(intent="explain"):
         content=[
             {
                 "type":"image_url",
-                "image_url": {"url":f"data:image/png;base64,{image_data}"}
+                "image_url": {"url": f"data:image/png;base64,{image_data}"}
             }
         ]
     print(f" source:{source}")
@@ -968,11 +1016,6 @@ def analyze_code(intent="explain"):
 
     
 
-
-
-
-
-
 """---HOTKEY SETUP---"""
 
 def setup_hotkey():
@@ -982,10 +1025,8 @@ def setup_hotkey():
 
 
 
-
-
 if __name__ == "__main__":
-    active=False
+    active = False
     speak("initializing jarvis..")
     gui_thread=threading.Thread(target=launch_gui,daemon=True)
     gui_thread.start()
@@ -999,15 +1040,13 @@ if __name__ == "__main__":
     print("file guard started")
 
     
-
     hotkey_thread=threading.Thread(target=setup_hotkey, daemon=True)
     hotkey_thread.start()
 
     face_thread=threading.Thread(target=face_watcher,daemon=True)
     face_thread.start()
-    threading.Thread(target=open_application,args=("",),daemon=True).start()
 
-
+    threading.Thread(target=open_application, args=("",), daemon=True).start()
 
     while True:
         r = sr.Recognizer()
@@ -1056,6 +1095,5 @@ difflib (Sequence Comparison): Used to compare two strings or sequences and find
 shutil (High-Level File Operations): Used to perform file and folder operations, such as copying, moving, renaming, and deleting files or directories.
 So the full flow is: Keyboard detects your hotkey → Pillow takes the screenshot → Tesseract reads the text → Groq answers the question → overlay shows the answer.
 
-os._exit(0)   "I shut down successfully, no errors"
 os._exit(1)   "I shut down because something went wrong"
 """

@@ -29,6 +29,10 @@ WHITE = "#d0eeff"
 
 W_GUI= 540
 H_GUI= 440
+MIN_W= 400
+MIN_H= 60
+EDGE = 4
+CORNER=10
 
 
 def _hex_points(cx, cy,r):
@@ -43,7 +47,6 @@ class JarvisGUI:
     def __init__(self):
         self.root=tk.Tk()
         self.root.title("J.A.R.V.I.S")
-        self.root.geometry(f"{W_GUI}x{H_GUI}")
         self.root.geometry(f"{W_GUI}x{H_GUI}+400+200")
         self.root.configure(bg=BG)
         self.root.resizable(False,False)
@@ -54,26 +57,38 @@ class JarvisGUI:
         self._drag_x=self._drag_y=0
         self.root.bind("<ButtonPress-1>",self._start_drag)
         self.root.bind("<B1-Motion>", self._on_drag)
+        self.root.bind("<Map>",self._on_map)
 
         self.status= "SLEEPING"
         self.start_ts  = time.time()
-        self._mode="normal"
         self._angle=0.0
         self._wave_t=0.0
+        self._maximized=False
+        self._restore_geom=None
+        self._size=(0,0)
+        self._rs=None
+        self._bar_max=155
+        self._stat_vals={"cpu":0,"ram":0,"bat":0}
+        self._charging=False
+        self._chat_fs=9
 
         self._build_background_canvas()
         self._build_ui()
+        self._build_grips()
+        self._relayout(W_GUI,H_GUI)
+        self.root.bind("<Configure>",self._on_configure)
         self._tick_animation()
         self._tick_stats()
         self._tick_clock()
 
     def _start_drag(self,e):
-        self._drag_x=e.x
-        self._drag_y=e.y
-        
+        self._drag_x=e.x_root-self.root.winfo_x()
+        self._drag_y=e.y_root-self.root.winfo_y()
+
     def _on_drag(self,e):
-        x=self.root.winfo_x()+e.x-self._drag_x
-        y=self.root.winfo_y()+e.y-self._drag_y
+        if self._maximized:
+            return
+        self.root.geometry(f"+{e.x_root-self._drag_x}+{e.y_root-self._drag_y}")
 
     def _build_background_canvas(self):
         self.bg=tk.Canvas(
@@ -86,6 +101,7 @@ class JarvisGUI:
 
         self._hdr=tk.Frame(self.root,bg=BG2,height=44)
         self._hdr.place(x=0,y=0,width=W_GUI)
+        self._hdr.bind("<Double-Button-1>",lambda e:self.toggle_mode())
 
         tk.Label(self._hdr, text="J.A.R.V.I.S",
                  font=("Courier New", 14,"bold"),
@@ -98,15 +114,16 @@ class JarvisGUI:
             self.root, width=136,height=26,
             bg=BG2,highlightthickness=0
         )
-        self._pill_canvas.place(x=390,y=9)
         self._draw_pill()
 
-        tk.Frame(self.root,bg=BORDER,height=1).place(x=0,y=44,width=W_GUI)
+        self._sep0=tk.Frame(self.root,bg=BORDER,height=1)
+        self._sep0.place(x=0,y=44,width=W_GUI)
 
         self._cpu_var=tk.StringVar(value="--")
         self._ram_var=tk.StringVar(value="--")
         self._bat_var=tk.StringVar(value="--")
         self._stat_bars={}
+        self._bar_bgs=[]
         self._stats_bg=tk.Frame(self.root, bg=BORDER)
         self._stats_bg.place(x=0,y=45,width=W_GUI,height=64)
 
@@ -130,6 +147,7 @@ class JarvisGUI:
             
             bar_bg=tk.Frame(f,bg=DIM2,width=155,height=2)
             bar_bg.place(x=10,y=56)
+            self._bar_bgs.append(bar_bg)
             bar=tk.Frame(f,bg=color,width=0,height=2)
             bar.place(x=10,y=56)
             self._stat_bars[key]=(bar,color)
@@ -160,15 +178,15 @@ class JarvisGUI:
         self._sep2=tk.Frame(self.root,bg=BORDER,height=1)
         self._sep2.place(x=0,y=262,width=W_GUI)
 
-        wave_bg=tk.Frame(self.root,bg=BG,height=38)
-        wave_bg.place(x=0,y=263,width=W_GUI)
+        self._wave_bg=tk.Frame(self.root,bg=BG,height=38)
+        self._wave_bg.place(x=0,y=263,width=W_GUI)
         self._wave_canvas=tk.Canvas(
-            wave_bg,width=168,height=38,
+            self._wave_bg,width=168,height=38,
             bg=BG,highlightthickness=0
         )
         self._wave_canvas.place(x=12,y=0)
         self._wave_label=tk.Label(
-            wave_bg,text="SLEEPING...",
+            self._wave_bg,text="SLEEPING...",
             font=("Courier New",8),
             bg=BG,fg=DIM
         )
@@ -185,35 +203,159 @@ class JarvisGUI:
         self._clock_var=tk.StringVar(value="--:--:-- --")
         tk.Label(self._ftr,textvariable=self._clock_var,
                  font=("Courier New",7),
-                bg=BG2,fg=DIM).place(x=200,y=6)
+                bg=BG2,fg=DIM).place(relx=0.5,y=6,anchor="n")
         
         self._uptime_var=tk.StringVar(value="-UPTIME: 00:00")
         tk.Label(self._ftr,textvariable=self._uptime_var,
                  font=("Courier New",7),
-                bg=BG2,fg=GREEN).place(x=390,y=6)
+                bg=BG2,fg=GREEN).place(relx=1.0,x=-14,y=6,anchor="ne")
         
 
-        tk.Button(
+        self._btn_min=tk.Button(
+            self.root,text="—",
+            font=("Courier New",10),
+            bg=BG2,fg=DIM,
+            activebackground=BG2,activeforeground=BLUE,
+            bd=0,cursor="hand2",
+            command=self.minimize
+        )
+        self._btn_full=tk.Button(
+            self.root,text="⛶",
+            font=("Courier New",10),
+            bg=BG2,fg=DIM,
+            activebackground=BG2,activeforeground=BLUE,
+            bd=0,cursor="hand2",
+            command=self.toggle_mode
+        )
+        self._btn_close=tk.Button(
             self.root,text="✕",
-            font=("Courier New", 10),
+            font=("Courier New",10),
             bg=BG2,fg=DIM,
             activebackground=BG2,activeforeground="#e04060",
             bd=0,cursor="hand2",
             command=self.hide
-        ).place(x=518,y=8)
-        
-        tk.Button(
-            self.root, text="⛶",
-            font=("Courier New", 10),
-            bg=BG2, fg=DIM,
-            activebackground=BG2, activeforeground=BLUE,
-            bd=0, cursor="hand2",
-            command=self.toggle_mode
-            ).place(x=494, y=8)
+        )
+        self._layout_controls(W_GUI)
+
         self.bg.create_rectangle(
             0,0,W_GUI-1,H_GUI-1,
             outline=BORDER,width=1,tags="border"
         )
+
+    def _build_grips(self):
+        cursors={
+            "n":"size_ns","s":"size_ns",
+            "w":"size_we","e":"size_we",
+            "nw":"size_nw_se","se":"size_nw_se",
+            "ne":"size_ne_sw","sw":"size_ne_sw",
+        }
+        self._grips={}
+        for edge,cur in cursors.items():
+            g=tk.Frame(self.root,bg=BORDER,cursor=cur)
+            g.bind("<ButtonPress-1>",lambda e,ed=edge:self._start_resize(e,ed))
+            g.bind("<B1-Motion>",self._do_resize)
+            self._grips[edge]=g
+
+    def _start_resize(self,e,edge):
+        self._rs=(edge,e.x_root,e.y_root,
+                  self.root.winfo_x(),self.root.winfo_y(),
+                  self.root.winfo_width(),self.root.winfo_height())
+        return "break"
+
+    def _do_resize(self,e):
+        if not self._rs:
+            return "break"
+        edge,sx,sy,x,y,w,h=self._rs
+        dx=e.x_root-sx
+        dy=e.y_root-sy
+        nw,nh=w,h
+        if "e" in edge:
+            nw=w+dx
+        if "w" in edge:
+            nw=w-dx
+        if "s" in edge:
+            nh=h+dy
+        if "n" in edge:
+            nh=h-dy
+        nw=max(MIN_W,nw)
+        nh=max(MIN_H,nh)
+        nx=x+w-nw if "w" in edge else x
+        ny=y+h-nh if "n" in edge else y
+        self.root.geometry(f"{nw}x{nh}+{nx}+{ny}")
+        return "break"
+
+    def _layout_grips(self,W,H):
+        if self._maximized:
+            for g in self._grips.values():
+                g.place_forget()
+            return
+        t,c=EDGE,CORNER
+        spots={
+            "n":(c,0,W-2*c,t),
+            "s":(c,H-t,W-2*c,t),
+            "w":(0,c,t,H-2*c),
+            "e":(W-t,c,t,H-2*c),
+            "nw":(0,0,c,c),
+            "ne":(W-c,0,c,c),
+            "sw":(0,H-c,c,c),
+            "se":(W-c,H-c,c,c),
+        }
+        for edge,(x,y,w,h) in spots.items():
+            g=self._grips[edge]
+            g.place(x=x,y=y,width=max(1,w),height=max(1,h))
+            g.lift()
+        for b in (self._btn_min,self._btn_full,self._btn_close):
+            b.lift()
+
+    def _on_configure(self,e):
+        if e.widget is not self.root:
+            return
+        size=(e.width,e.height)
+        if size==self._size:
+            return
+        self._size=size
+        self._relayout(*size)
+
+    def _relayout(self,W,H):
+        strip=int(H*0.25)
+        chat_h=H-176-strip
+        body=chat_h>=60
+
+        self.bg.place(x=0,y=0,width=W,height=H)
+        self.bg.coords("border",0,0,W-1,H-1)
+        self._hdr.place(x=0,y=0,width=W)
+        self._sep0.place(x=0,y=44,width=W)
+        self._layout_controls(W)
+
+        body_widgets=[self._stats_bg,self._sep1,self._chat_frame,
+                      self._sep2,self._wave_bg,self._sep3,self._ftr]
+        if not body:
+            for w in body_widgets:
+                w.place_forget()
+        else:
+            fw=(W-2)//3
+            self._bar_max=max(20,fw-24)
+            self._stats_bg.place(x=0,y=45,width=W,height=64)
+            for i,f in enumerate(self._stat_frames):
+                f.place(x=i*(fw+1),y=0,width=fw,height=64)
+            for bb in self._bar_bgs:
+                bb.place(x=10,y=56,width=self._bar_max,height=2)
+            self._sep1.place(x=0,y=109,width=W)
+            self._chat_frame.place(x=0,y=110,width=W,height=chat_h)
+            y=110+chat_h
+            self._sep2.place(x=0,y=y,width=W)
+            self._wave_bg.place(x=0,y=y+1,width=W,height=38)
+            self._sep3.place(x=0,y=y+39,width=W)
+            self._ftr.place(x=0,y=y+40,width=W,height=26)
+            self._apply_bars()
+
+            fs=max(8,min(18,int(9*min(W/W_GUI,H/H_GUI)+0.5)))
+            if fs!=self._chat_fs:
+                self._chat_fs=fs
+                self._chat.config(font=("Courier New",fs))
+
+        self._layout_grips(W,H)
+
     def _draw_pill(self):
         c=self._pill_canvas
         c.delete("all")
@@ -255,30 +397,33 @@ class JarvisGUI:
                 self._chat.insert("end","JARVIS: ","pre_jarvis")
                 self._chat.insert("end",text+ "\n","txt_jarvis")
             else:
-                self._chat.insert("end","f[{text}]\n","sys")
+                self._chat.insert("end",f"[{text}]\n","sys")
             self._chat.config(state="disabled")
             self._chat.see("end")
         self.root.after(0,_insert)
+
+    def _apply_bars(self):
+        for key,val in self._stat_vals.items():
+            bar,color=self._stat_bars[key]
+            if key=="bat" and val<20 and not self._charging:
+                bar.config(bg="#ffaa00")
+            else:
+                bar.config(bg=color)
+            bar.config(width=int(val/100*self._bar_max))
     
     def _tick_stats(self):
         cpu=psutil.cpu_percent()
         ram=psutil.virtual_memory().percent
         bat=psutil.sensors_battery()
         bat_pct=int(bat.percent) if bat else 0
-        charging= bat.power_plugged if bat else False
+        self._charging= bat.power_plugged if bat else False
 
         self._cpu_var.set(f"{int(cpu)}%")
         self._ram_var.set(f"{int(ram)}%")
         self._bat_var.set(f"{bat_pct}%")
 
-        max_w=155
-        for key, val in [("cpu",cpu),("ram",ram),("bat",bat_pct)]:
-            bar,color=self._stat_bars[key]
-            if key=="bat" and bat_pct <20 and not charging:
-                bar.config(bg="#ffaa00")
-            else:
-                bar.config(bg=color)
-            bar.config(width=int(val/100*max_w))
+        self._stat_vals={"cpu":cpu,"ram":ram,"bat":bat_pct}
+        self._apply_bars()
         self.root.after(2000,self._tick_stats)
     
     def _tick_clock(self):
@@ -473,6 +618,28 @@ class JarvisGUI:
             y2=19+h_bar
             wc.create_rectangle(x1,y1,x2,y2,
                                 fill=col,outline="",tags="bar")
+
+    def _layout_controls(self,width):
+        self._btn_min.place(x=width-84,y=8)
+        self._btn_full.place(x=width-58,y=8)
+        self._btn_close.place(x=width-32,y=8)
+        self._pill_canvas.place(x=width-84-136-10,y=9)
+        for b in (self._btn_min,self._btn_full,self._btn_close):
+            b.lift()
+
+    def minimize(self):
+        self.root.overrideredirect(False)
+        self.root.iconify()
+
+    def _on_map(self,e):
+        if e.widget is self.root and not self.root.overrideredirect():
+            self.root.after(10,self._restore_frameless)
+
+    def _restore_frameless(self):
+        self.root.overrideredirect(True)
+        self.root.lift()
+        self.root.attributes("-topmost",True)
+
     def hide(self):
         self.root.withdraw()
 
@@ -482,63 +649,19 @@ class JarvisGUI:
         self.root.attributes("-topmost",True)
     
     def toggle_mode(self):
-        sw=self.root.winfo_screenwidth()
-        sh=self.root.winfo_screenheight()
-
-        if self._mode=="normal":
-            self._mode="mini"
-            self.root.geometry("540x60+0+0")
-            self.bg.config(width=540,height=60)
-            self.bg.place(x=0,y=0,width=540,height=60)
-            self._hdr.place(x=0,y=0,width=540)
-            self._stats_bg.place_forget()
-            self._chat_frame.place_forget()
-            self._wave_canvas.master.place_forget()
-            self._ftr.place_forget()
-        
-        elif self._mode=="mini":
-            self._mode="full"
-            self.root.overrideredirect(False)
+        if not self._maximized:
+            self._restore_geom=self.root.geometry()
+            self._maximized=True
+            sw=self.root.winfo_screenwidth()
+            sh=self.root.winfo_screenheight()
             self.root.geometry(f"{sw}x{sh}+0+0")
-            self.root.update()
-            self.bg.config(width=sw,height=sh)
-            self.bg.place(x=0,y=0,width=sw,height=sh)
-            self.root.update_idletasks()
-            self._hdr.place(x=0,y=0,width=sw)
-            self._stats_bg.place(x=0,y=45,width=sw,height=64)
-            stat_w=sw//3
-            for i,f in enumerate(self._stat_frames):
-                f.place(x=i*(stat_w+1),y=0,width=stat_w-1,height=64)
-            self._pill_canvas.place(x=sw-150,y=9)
-            self._chat_frame.place(x=0,y=110,width=sw,height=sh-290)
-            self._chat.config(width=sw)
-            self._wave_canvas.master.place(x=0,y=sh-138,width=sw)
-            self._ftr.place(x=0,y=sh-38,width=sw)
-            self._sep1.place(x=0,y=109,width=sw)
-            self._sep2.place(x=0,y=sh-178,width=sw)
-            self._sep3.place(x=0,y=sh-139,width=sw)
-
         else:
-            self._mode="normal"
-            self.root.overrideredirect(True)            
-            self.root.geometry(f"{W_GUI}x{H_GUI}+400+200")
-            self.root.update()
-            self.bg.config(width=W_GUI,height=H_GUI)
-            self.bg.place(x=0,y=0,width=W_GUI,height=H_GUI)
-            self._hdr.place(x=0,y=0,width=W_GUI)
-            self._stats_bg.place(x=0,y=45,width=W_GUI,height=64)
-            for i,f in enumerate(self._stat_frames):
-                f.place(x=i*181,y=0,width=179,height=64)
-            self._pill_canvas.place(x=390,y=9)
-            self._chat_frame.place(x=0,y=110,width=W_GUI,height=152)
-            self._wave_canvas.master.place(x=0,y=263,width=W_GUI)
-            self._ftr.place(x=0,y=302,width=W_GUI)
-            self._sep1.place(x=0,y=109,width=W_GUI)
-            self._sep2.place(x=0,y=262,width=W_GUI)
-            self._sep3.place(x=0,y=301,width=W_GUI)
+            self._maximized=False
+            self.root.geometry(self._restore_geom or f"{W_GUI}x{H_GUI}+400+200")
+        self._relayout(self.root.winfo_width(),self.root.winfo_height())
 
     def run(self):
-        self .root.mainloop()
+        self.root.mainloop()
 
 def _make_tray_icon():
     img=Image.new("RGBA",(64,64),(0,0,0,0))
