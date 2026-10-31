@@ -47,9 +47,9 @@ while True:
     if capturing:
         msg = f"Capturing {len(samples)}/{TARGET_SAMPLES} - turn head slightly"
     elif face is None:
-        msg = "No face detected"
+        msg = "No face detected, press esc to cancel"
     else:
-        msg = "Press SPACE to start"
+        msg = "Press SPACE to start, press esc to cancel"
     cv2.putText(display, msg, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     cv2.imshow("Face registration", display)
