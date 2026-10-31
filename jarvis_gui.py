@@ -16,7 +16,7 @@ try:
 except ImportError:
     TRAY_AVAILABLE=False
     print("⚠  pystray/pillow not found. Run: pip install pystray pillow")
-
+EXIT_CALLBACK=None
 BG    = "#020912"
 BG2   = "#040f1e"
 BORDER= "#0a2a45"
@@ -681,6 +681,8 @@ def _run_tray(gui:JarvisGUI):
         gui.show()
     def on_exit(icon,item):
         icon.stop()
+        if EXIT_CALLBACK:
+            EXIT_CALLBACK()
         os._exit(0)
 
     icon=pystray.Icon(

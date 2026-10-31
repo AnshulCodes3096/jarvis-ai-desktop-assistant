@@ -32,6 +32,8 @@ import difflib
 import shutil
 from jarvis_gui import launch_gui, get_gui
 from dotenv import load_dotenv
+import atexit
+import jarvis_gui
 
 load_dotenv()
 
@@ -85,7 +87,7 @@ def recognize_face():
             face_img=prepare_face(gray,x,y,w,h)
             score=max(cv2.matchTemplate(face_img,k,cv2.TM_CCOEFF_NORMED)[0][0] for k in known_faces)
             print(f"Match Score: {score: .2f}")
-            if score>0.7:
+            if score>0.8:
                 cam.release()
                 cv2.destroyAllWindows()
                 return True
@@ -423,9 +425,25 @@ def find_and_open_file(filename):
         return f"No file named'{filename} found on your PC"
     
 
+guard_proc=None
+
+def kill_guard():
+    if guard_proc and guard_proc.poll() is None:
+        try:
+            parent=psutil.Process(guard_proc.pid)
+            for child in parent.children(recursive=True):
+                child.terminate()
+            parent.terminate()
+        except psutil.NoSuchProcess:
+            pass
+
+def stop_jarvis():
+    kill_guard()
+    os._exit(0)
+
 def shutdown_jarvis():
     speak("Shutting down completely. Goodbye Sir!")
-    os._exit(0)
+    stop_jarvis()
 
 def sleep_jarvis():
     return "SLEEP"
@@ -1037,10 +1055,12 @@ if __name__ == "__main__":
     time.sleep(1.2)
     guard_path = os.environ.get("JARVIS_PROJECT_DIR", os.path.dirname(os.path.abspath(__file__)))
     guard_path = os.path.join(guard_path, "file_guard.py")
-    subprocess.Popen(
-        ["python",guard_path],
+    guard_proc=subprocess.Popen(
+        ["python",guard_path,str(os.getpid())],
         creationflags=subprocess.CREATE_NO_WINDOW
     )
+    atexit.register(kill_guard)
+    jarvis_gui.EXIT_CALLBACK=stop_jarvis
     print("file guard started")
 
     
@@ -1084,6 +1104,14 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Unexpected error: {e}")
 
+        except KeyboardInterrupt:
+            print("Jarvis stopped")
+            guard_proc.terminate()
+            os._exit(0)
+
+        except KeyboardInterrupt:
+            print("Jarvis stopped")
+            stop_jarvis()
 
 
 """working of pillow library: it bascially make the python so that it can take the image of the screen'
